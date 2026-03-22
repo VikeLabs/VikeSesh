@@ -1,0 +1,1077 @@
+openapi: 3.0.3
+
+info:
+  title: VikeSesh API
+  description: |
+    REST API for VikeSesh — a UVic-exclusive campus social platform.
+    
+    ## Authentication
+    All endpoints marked with 🔒 require a valid JWT in an HttpOnly cookie.
+    This is set automatically on login and cleared on logout.
+    During development, pass `student_id` in the request body or query params
+    as a temporary substitute until Role 2 auth is complete.
+    
+    ## Response Format
+    Every endpoint returns JSON in one of these two shapes:
+    
+    **Success:** `{ "data": { ... }, "error": null }`
+    
+    **Error:** `{ "data": null, "error": "description of what went wrong" }`
+    
+  version: 0.1.0
+  contact:
+    name: VikeLabs
+    url: https://github.com/VikeLabs/VikeSesh
+
+servers:
+  - url: http://localhost:5000/api
+    description: Local development server
+  - url: https://api.vikesesh.ca/api
+    description: Production (future)
+
+# ─────────────────────────────────────────────
+# REUSABLE COMPONENTS
+# ─────────────────────────────────────────────
+
+components:
+
+  schemas:
+
+    # ── Success wrapper ──────────────────────
+    Success:
+      type: object
+      properties:
+        data:
+          description: The response payload (object or array)
+        error:
+          type: string
+          nullable: true
+          example: null
+
+    # ── Error wrapper ────────────────────────
+    Error:
+      type: object
+      properties:
+        data:
+          nullable: true
+          example: null
+        error:
+          type: string
+          example: "Group not found"
+
+    # ── Student ──────────────────────────────
+    Student:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        display_name:
+          type: string
+          example: "Alice Chen"
+        uvic_email:
+          type: string
+          example: "alice@uvic.ca"
+        avatar_url:
+          type: string
+          nullable: true
+          example: "https://res.cloudinary.com/vikesesh/image/upload/v1/avatars/alice.jpg"
+
+    # ── Group ────────────────────────────────
+    Group:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "MATH 100"
+        description:
+          type: string
+          nullable: true
+          example: "Calculus 1 — all sections"
+        course_code:
+          type: string
+          nullable: true
+          example: "MATH100"
+        icon_url:
+          type: string
+          nullable: true
+          example: null
+        is_public:
+          type: boolean
+          example: true
+        member_count:
+          type: integer
+          example: 42
+        parent_group_id:
+          type: integer
+          nullable: true
+          example: null
+
+    # ── GroupDetail (includes members + subgroups) ──
+    GroupDetail:
+      allOf:
+        - $ref: '#/components/schemas/Group'
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/Student'
+            subgroups:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+
+    # ── CampusLocation ───────────────────────
+    CampusLocation:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Clearihue A110"
+        building:
+          type: string
+          example: "Clearihue"
+        room:
+          type: string
+          nullable: true
+          example: "A110"
+        latitude:
+          type: number
+          format: float
+          example: 48.4636
+        longitude:
+          type: number
+          format: float
+          example: -123.3117
+
+    # ── Event ────────────────────────────────
+    Event:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "MATH 100 Midterm Review"
+        description:
+          type: string
+          nullable: true
+          example: "Group study session before the midterm."
+        start_time:
+          type: string
+          format: date-time
+          example: "2026-03-01T14:00:00+00:00"
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-03-01T16:00:00+00:00"
+        recurrence_rule:
+          type: string
+          nullable: true
+          example: "FREQ=WEEKLY;BYDAY=TU;COUNT=10"
+        visibility:
+          type: string
+          enum: [public_group, invited_only]
+          example: "public_group"
+        is_cancelled:
+          type: boolean
+          example: false
+        creator_id:
+          type: integer
+          example: 1
+        location:
+          $ref: '#/components/schemas/CampusLocation'
+          nullable: true
+
+    # ── MapPin ───────────────────────────────
+    MapPin:
+      type: object
+      properties:
+        event_id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "MATH 100 Midterm Review"
+        start_time:
+          type: string
+          format: date-time
+          example: "2026-03-01T14:00:00+00:00"
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-03-01T16:00:00+00:00"
+        latitude:
+          type: number
+          format: float
+          example: 48.4636
+        longitude:
+          type: number
+          format: float
+          example: -123.3117
+        location_name:
+          type: string
+          example: "Clearihue A110"
+        group_name:
+          type: string
+          example: "MATH 100"
+        group_id:
+          type: integer
+          example: 1
+        visibility:
+          type: string
+          enum: [public_group, invited_only]
+          example: "public_group"
+
+    # ── Message ──────────────────────────────
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        content:
+          type: string
+          example: "Hey everyone! Study session is booked for Thursday."
+        message_type:
+          type: string
+          enum: [user, system]
+          example: "user"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-02-28T14:00:00+00:00"
+        author:
+          nullable: true
+          description: "null for system messages"
+          allOf:
+            - $ref: '#/components/schemas/Student'
+
+  # ── Common Responses ─────────────────────────
+  responses:
+    Unauthorized:
+      description: JWT missing or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            data: null
+            error: "Unauthorized — please log in"
+
+    Forbidden:
+      description: Student does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            data: null
+            error: "You are not a member of this group"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            data: null
+            error: "Group not found"
+
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            data: null
+            error: "Group name is required"
+
+
+# ─────────────────────────────────────────────
+# ENDPOINTS
+# ─────────────────────────────────────────────
+
+paths:
+
+  # ══════════════════════════════════════════
+  # AUTH  (Role 2 — implemented by Auth team)
+  # ══════════════════════════════════════════
+
+  /auth/request-otp:
+    post:
+      tags: [Auth]
+      summary: Request an OTP verification code
+      description: |
+        Validates that the email ends in @uvic.ca, generates a 6-digit OTP,
+        stores a bcrypt hash of it with a 10-minute expiry, and sends it
+        to the email address via SMTP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: "alice@uvic.ca"
+      responses:
+        '200':
+          description: OTP sent (always returns this even if email not found — prevents user enumeration)
+          content:
+            application/json:
+              example:
+                data: { message: "If that email is registered, a code has been sent." }
+                error: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Rate limit exceeded (5 requests per 15 minutes per IP)
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create a new student account
+      description: |
+        Verifies the OTP, hashes the password with bcrypt, creates the Student
+        record, and returns a JWT in an HttpOnly cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, otp, password]
+              properties:
+                email:
+                  type: string
+                  example: "alice@uvic.ca"
+                otp:
+                  type: string
+                  example: "482910"
+                password:
+                  type: string
+                  example: "supersecret123"
+                display_name:
+                  type: string
+                  example: "Alice Chen"
+      responses:
+        '201':
+          description: Account created, JWT set in cookie
+          content:
+            application/json:
+              example:
+                data: { id: 1, display_name: "Alice Chen", uvic_email: "alice@uvic.ca" }
+                error: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with email and password
+      description: |
+        Verifies the bcrypt password hash and sets a JWT in an HttpOnly,
+        Secure, SameSite=Strict cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: "alice@uvic.ca"
+                password:
+                  type: string
+                  example: "supersecret123"
+      responses:
+        '200':
+          description: Login successful, JWT set in cookie
+          content:
+            application/json:
+              example:
+                data: { id: 1, display_name: "Alice Chen" }
+                error: null
+        '401':
+          description: Invalid email or password
+        '429':
+          description: Rate limit exceeded
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out and clear the auth cookie
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              example:
+                data: { message: "Logged out" }
+                error: null
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password reset OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: "alice@uvic.ca"
+      responses:
+        '200':
+          description: Always returns 200 to prevent user enumeration
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, otp, new_password]
+              properties:
+                email:
+                  type: string
+                otp:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Password reset successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+
+  # ══════════════════════════════════════════
+  # GROUPS
+  # ══════════════════════════════════════════
+
+  /groups:
+    get:
+      tags: [Groups]
+      summary: List public groups
+      description: |
+        Returns a paginated list of public groups.
+        Supports search by group name or course code.
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          example: "math"
+          description: Filter by name or course code
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number for pagination
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              example:
+                data:
+                  groups:
+                    - id: 1
+                      name: "MATH 100"
+                      course_code: "MATH100"
+                      member_count: 42
+                      is_public: true
+                      parent_group_id: null
+                  page: 1
+                  total: 15
+                error: null
+
+    post:
+      tags: [Groups]
+      summary: 🔒 Create a new group
+      description: Creator is automatically added as Owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, student_id]
+              properties:
+                name:
+                  type: string
+                  example: "MATH 100"
+                description:
+                  type: string
+                  example: "Calculus 1 — all sections"
+                course_code:
+                  type: string
+                  example: "MATH100"
+                is_public:
+                  type: boolean
+                  default: true
+                parent_group_id:
+                  type: integer
+                  nullable: true
+                  example: null
+                student_id:
+                  type: integer
+                  description: "Temporary — will be replaced by JWT auth"
+                  example: 1
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              example:
+                data: { id: 5, name: "MATH 100" }
+                error: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /groups/{group_id}:
+    get:
+      tags: [Groups]
+      summary: Get group details
+      description: |
+        Returns full group details including members and subgroups.
+        Private groups return 403 if the student is not a member.
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: student_id
+          in: query
+          schema:
+            type: integer
+          description: "Temporary — will be replaced by JWT auth"
+      responses:
+        '200':
+          description: Group details
+          content:
+            application/json:
+              example:
+                data:
+                  id: 1
+                  name: "MATH 100"
+                  description: "Calculus 1"
+                  course_code: "MATH100"
+                  is_public: true
+                  member_count: 42
+                  parent_group_id: null
+                  subgroups:
+                    - id: 2
+                      name: "MATH 100 — Dr. Smith"
+                  members:
+                    - id: 1
+                      display_name: "Alice Chen"
+                      avatar_url: null
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_id}/join:
+    post:
+      tags: [Groups]
+      summary: 🔒 Join a group
+      description: |
+        Adds the student as a Member. Returns 409 if already a member.
+        Auto-posts a SYSTEM message to the group chat.
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Successfully joined
+          content:
+            application/json:
+              example:
+                data: { status: "joined", group: "MATH 100" }
+                error: null
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Already a member
+          content:
+            application/json:
+              example:
+                data: null
+                error: "You are already a member of this group"
+
+  /groups/{group_id}/leave:
+    delete:
+      tags: [Groups]
+      summary: 🔒 Leave a group
+      description: |
+        Removes the student from the group.
+        The Owner cannot leave if other members still exist.
+        Auto-posts a SYSTEM message to the group chat.
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Successfully left
+          content:
+            application/json:
+              example:
+                data: { status: "left", group: "MATH 100" }
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /groups/{group_id}/messages:
+    get:
+      tags: [Messages]
+      summary: 🔒 Get group messages
+      description: |
+        Returns the 50 most recent messages, newest first.
+        Use ?before=<message_id> to load older messages (infinite scroll).
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: student_id
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: "Temporary — will be replaced by JWT auth"
+        - name: before
+          in: query
+          schema:
+            type: integer
+          description: Load messages older than this message ID
+      responses:
+        '200':
+          description: List of messages
+          content:
+            application/json:
+              example:
+                data:
+                  messages:
+                    - id: 10
+                      content: "Hey everyone!"
+                      message_type: "user"
+                      created_at: "2026-02-28T14:00:00+00:00"
+                      author:
+                        id: 1
+                        display_name: "Alice Chen"
+                        avatar_url: null
+                    - id: 9
+                      content: "Alice Chen joined the group."
+                      message_type: "system"
+                      created_at: "2026-02-28T13:00:00+00:00"
+                      author: null
+                  has_more: true
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Messages]
+      summary: 🔒 Post a message
+      description: |
+        Posts a USER message to the group chat.
+        Max 2000 characters.
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, content]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+                content:
+                  type: string
+                  maxLength: 2000
+                  example: "Hey everyone! Study session is booked for Thursday."
+      responses:
+        '201':
+          description: Message posted
+          content:
+            application/json:
+              example:
+                data: { id: 11, content: "Hey everyone!" }
+                error: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+
+  # ══════════════════════════════════════════
+  # EVENTS
+  # ══════════════════════════════════════════
+
+  /groups/{group_id}/events:
+    get:
+      tags: [Events]
+      summary: 🔒 List events in a group
+      description: |
+        Returns all upcoming non-cancelled events in the group
+        visible to the requesting student, ordered by start time.
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: student_id
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: "Temporary — will be replaced by JWT auth"
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              example:
+                data:
+                  - id: 1
+                    title: "MATH 100 Midterm Review"
+                    start_time: "2026-03-01T14:00:00+00:00"
+                    end_time: "2026-03-01T16:00:00+00:00"
+                    recurrence_rule: null
+                    visibility: "public_group"
+                    is_cancelled: false
+                    creator_id: 1
+                    location:
+                      id: 1
+                      name: "Clearihue A110"
+                      latitude: 48.4636
+                      longitude: -123.3117
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Events]
+      summary: 🔒 Create an event
+      description: |
+        Creates an event in the group and automatically creates
+        EventInvitation rows based on visibility:
+        - PUBLIC_GROUP: invites all group members
+        - INVITED_ONLY: invites only the listed student IDs
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, title, start_time, visibility]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+                title:
+                  type: string
+                  example: "Midterm Review"
+                description:
+                  type: string
+                  example: "Bring practice problems."
+                location_id:
+                  type: integer
+                  nullable: true
+                  example: 1
+                start_time:
+                  type: string
+                  format: date-time
+                  example: "2026-03-01T14:00:00Z"
+                end_time:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  example: "2026-03-01T16:00:00Z"
+                visibility:
+                  type: string
+                  enum: [public_group, invited_only]
+                  example: "public_group"
+                recurrence_rule:
+                  type: string
+                  nullable: true
+                  example: "FREQ=WEEKLY;BYDAY=TU;COUNT=10"
+                invited_student_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: "Only used when visibility is invited_only"
+                  example: []
+      responses:
+        '201':
+          description: Event created
+          content:
+            application/json:
+              example:
+                data: { id: 5, title: "Midterm Review" }
+                error: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{event_id}/respond:
+    post:
+      tags: [Events]
+      summary: 🔒 Accept or decline an event invitation
+      description: |
+        Updates the student's EventInvitation status to ACCEPTED or DECLINED.
+        Records the response time.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, accepted]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+                accepted:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: RSVP recorded
+          content:
+            application/json:
+              example:
+                data: { status: "accepted" }
+                error: null
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{event_id}:
+    patch:
+      tags: [Events]
+      summary: 🔒 Edit an event
+      description: Only the event creator can edit. Only sends fields that changed.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+                title:
+                  type: string
+                description:
+                  type: string
+                location_id:
+                  type: integer
+                recurrence_rule:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Event updated
+          content:
+            application/json:
+              example:
+                data: { id: 1, title: "Updated Title" }
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Events]
+      summary: 🔒 Cancel an event
+      description: |
+        Soft-deletes the event by setting is_cancelled=True.
+        The event record is never hard-deleted.
+        Only the creator can cancel.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Event cancelled
+          content:
+            application/json:
+              example:
+                data: { status: "cancelled", event_id: 1 }
+                error: null
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+
+  # ══════════════════════════════════════════
+  # MAP
+  # ══════════════════════════════════════════
+
+  /map-pins/{student_id}:
+    get:
+      tags: [Map]
+      summary: 🔒 Get campus map pins for a student
+      description: |
+        THE CORE ENDPOINT — called by the Next.js campus map on page load.
+        
+        Returns all events that should appear as map pins for the student:
+        - PUBLIC_GROUP events in any group the student belongs to
+        - INVITED_ONLY events where the student has a non-declined invitation
+        - Cancelled events are never included
+        - Events without a campus location are never included
+        
+        Each item contains the lat/lng needed to place a Leaflet marker
+        and the metadata shown in the pin popover.
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        '200':
+          description: List of map pins
+          content:
+            application/json:
+              example:
+                data:
+                  - event_id: 1
+                    title: "MATH 100 Midterm Review"
+                    start_time: "2026-03-01T14:00:00+00:00"
+                    end_time: "2026-03-01T16:00:00+00:00"
+                    latitude: 48.4636
+                    longitude: -123.3117
+                    location_name: "Clearihue A110"
+                    group_name: "MATH 100"
+                    group_id: 1
+                    visibility: "public_group"
+                  - event_id: 3
+                    title: "Chess Club Tournament"
+                    start_time: "2026-03-03T10:00:00+00:00"
+                    end_time: "2026-03-03T13:00:00+00:00"
+                    latitude: 48.4625
+                    longitude: -123.3109
+                    location_name: "Cornett A128"
+                    group_name: "Chess Club"
+                    group_id: 3
+                    visibility: "public_group"
+                error: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
